@@ -1,0 +1,17 @@
+div.my-footer {
+    /*background-color: #15a9ce;*/
+    /*background: -webkit-gradient(linear, left top, right top, color-stop(0%,#15a9ce), color-stop(0%,#15a9ce), color-stop(0%,#ffffff), color-stop(10%,#ffffff), color-stop(25%,#15a9ce), color-stop(100%,#15a9ce));*/
+    position: absolute;
+    bottom: 2px;
+    left: 2px;
+    height: 40px;
+    width: 100%;
+    text-align: left;
+}
+
+div.my-footer span {
+    font-size: 10pt;
+    position: absolute;
+    left: 15px;
+    bottom: 2px;
+}

@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html>
+
+    <title>Responsive, back pressured services using Akka</title>
+    <meta charset="utf-8">
+    <style>
+        @import url(https://fonts.googleapis.com/css?family=Yanone+Kaffeesatz);
+        @import url(https://fonts.googleapis.com/css?family=Droid+Serif:400,700,400italic);
+        @import url(https://fonts.googleapis.com/css?family=Ubuntu+Mono:400,700,400italic);
+
+        body {
+            font-family: 'Droid Serif', 'Helvetica';
+        }
+
+        h1, h2, h3 {
+            font-family: 'Yanone Kaffeesatz', 'Gill Sans';
+            font-weight: normal;
+        }
+
+        .remark-code, .remark-inline-code {
+            font-family: 'Ubuntu Mono', 'Consolas', 'Courier New';
+        }
+    </style>
+    <link rel="stylesheet" type="text/css" href="my-remark.css"/>
+</head>
+<body>
+<textarea id="source">
+
+
+
+
+
+layout: true
+
+    <div class="my-footer"><img src="akka-full-colour.svg" style="height: 40px;"/></div>
+<!--<div class="my-footer"><span></span></div>-->
+
+---
+
+class: center, middle
+
+# Akka Typed
+
+Christopher Batey
+
+Lightbend
+
+`@chbatey`
+
+???
+
+---
+
+# About me
+
+* Christopher Batey
+* Work @ Lightbend on the Akka team
+    * Akka
+    * Akka-streams
+    * Akka-http
+    * Akka persistence for Apache Cassandra
+
+
+---
+
+background-image: url(AkkaLogoAndSummary.png)
+
+---
+
+background-image: url(AkkaToolkit.png)
+
+# Akka Toolkit
+
+---
+
+# Why
+
+---
+
+# Lock example
+
+```scala
+object LockProtocol {
+  sealed trait LockProtocol
+  final case object Lock extends LockProtocol
+  final case object Unlock extends LockProtocol
+
+  sealed trait LockStatus
+  final case object Granted extends LockStatus
+  final case class Taken(who: ActorRef) extends LockStatus
+}
+```
+
+
+---
+
+# Untyped Actor (mutable)
+
+```scala
+class MutableActor extends Actor with ActorLogging {
+  import LockProtocol._
+
+  private var owner: Option[ActorRef] = None
+
+  def receive: Receive = {
+    case Lock if owner.isEmpty =>
+      owner = Some(sender())
+      sender() ! Granted
+    case Lock =>
+      sender() ! Taken(owner.get)
+    case Unlock =>
+      require(owner.contains(sender()))
+      owner = None
+  }
+}
+
+```
+
+---
+
+# Untyped Actor (become)
+
+```scala
+class BecomeActor extends Actor {
+  import LockProtocol._
+
+  private val unlocked: Receive = {
+    case Lock =>
+      sender() ! Granted
+      context.become(locked(sender()))
+  }
+
+  private def locked(who: ActorRef): Receive = {
+    case Lock =>
+      sender() ! Taken(who)
+    case Unlock =>
+      require(sender() == who)
+      context.become(unlocked)
+  }
+
+  override def receive = unlocked
+}
+
+```
+
+---
+
+# Akka Typed
+
+* `ActorRef` becomes `ActorRef[T]`
+
+--
+
+* No more Actor trait
+
+--
+
+* No more `sender()`
+
+--
+
+* No more `actorSelection`
+
+---
+
+# Akka Typed
+
+* Change its behavior
+
+--
+
+* Send 0+ messages
+
+--
+
+* Spawn 0+ children
+
+---
+
+# Protocol
+
+```scala
+sealed trait LockProtocol
+final case class Lock(self: ActorRef[LockStatus]) extends LockProtocol
+final case class Unlock(self: ActorRef[LockStatus]) extends LockProtocol
+```
+
+--
+
+
+```scala
+sealed trait LockStatus
+final case object Granted extends LockStatus
+final case class Taken(who: ActorRef[LockStatus]) extends LockStatus
+```
+
+---
+
+# Behaviors
+
+```scala
+val unlocked: Behavior[LockProtocol] = Behaviors.immutable[LockProtocol] {
+  case (ctx, Lock(who)) =>
+    who ! Granted
+    locked(who)
+}
+```
+
+--
+
+```scala
+def locked(by: ActorRef[LockStatus]): Behavior[LockProtocol] = Behaviors.immutable[LockProtocol] {
+   case (ctx, Lock(who)) =>
+     who ! Taken(by)
+     Behaviors.same
+   case (ctx, Unlock(who)) =>
+     require(who == by)
+     Behaviors.same
+ }
+```
+
+---
+
+# Ask example
+
+---
+
+# Going distributed
+
+--- 
+
+# Persistence
+
+class: center, middle
+
+# Thanks!
+Code and slides at `chbatey/akka-typed-talk` on GitHub
+
+---
+
+# Questions?
+
+
+ </textarea>
+<script src="remark-latest.min.js">
+</script>
+<script>
+    var slideshow = remark.create();
+</script>
+</body>
+</html>
