@@ -219,7 +219,7 @@ def locked(by: ActorRef[LockStatus]): Behavior[LockProtocol] = Behaviors.immutab
      Behaviors.same
    case (ctx, Unlock(who)) =>
      require(who == by)
-     Behaviors.same
+     unlocked
  }
 ```
 
