@@ -1,31 +1,30 @@
 <!DOCTYPE html>
 <html>
 
-    <title>Responsive, back pressured services using Akka</title>
-    <meta charset="utf-8">
-    <style>
-        @import url(https://fonts.googleapis.com/css?family=Yanone+Kaffeesatz);
-        @import url(https://fonts.googleapis.com/css?family=Droid+Serif:400,700,400italic);
-        @import url(https://fonts.googleapis.com/css?family=Ubuntu+Mono:400,700,400italic);
+<title>Responsive, back pressured services using Akka</title>
+<meta charset="utf-8">
+<style>
+@import url(https://fonts.googleapis.com/css?family=Yanone+Kaffeesatz);
+@import url(https://fonts.googleapis.com/css?family=Droid+Serif:400,700,400italic);
+@import url(https://fonts.googleapis.com/css?family=Ubuntu+Mono:400,700,400italic);
 
-        body {
-            font-family: 'Droid Serif', 'Helvetica';
-        }
+body {
+font-family: 'Droid Serif', 'Helvetica';
+}
 
-        h1, h2, h3 {
-            font-family: 'Yanone Kaffeesatz', 'Gill Sans';
-            font-weight: normal;
-        }
+h1, h2, h3 {
+font-family: 'Yanone Kaffeesatz', 'Gill Sans';
+font-weight: normal;
+}
 
-        .remark-code, .remark-inline-code {
-            font-family: 'Ubuntu Mono', 'Consolas', 'Courier New';
-        }
-    </style>
-    <link rel="stylesheet" type="text/css" href="my-remark.css"/>
+.remark-code, .remark-inline-code {
+font-family: 'Ubuntu Mono', 'Consolas', 'Courier New';
+}
+</style>
+<link rel="stylesheet" type="text/css" href="my-remark.css"/>
 </head>
 <body>
 <textarea id="source">
-
 
 
 
@@ -75,22 +74,27 @@ background-image: url(AkkaToolkit.png)
 
 # Why
 
+* Type safety
+--
+
+* Refactoring
+--
+
+* Making protocols explicit
+
 ---
 
 # Lock example
 
 ```scala
-object LockProtocol {
-  sealed trait LockProtocol
-  final case object Lock extends LockProtocol
-  final case object Unlock extends LockProtocol
+sealed trait LockProtocol
+final case object Lock extends LockProtocol
+final case object Unlock extends LockProtocol
 
-  sealed trait LockStatus
-  final case object Granted extends LockStatus
-  final case class Taken(who: ActorRef) extends LockStatus
-}
+sealed trait LockStatus
+final case object Granted extends LockStatus
+final case class Taken(who: ActorRef) extends LockStatus
 ```
-
 
 ---
 
@@ -219,27 +223,239 @@ def locked(by: ActorRef[LockStatus]): Behavior[LockProtocol] = Behaviors.immutab
  }
 ```
 
+???
+* Run behaviors without starting an actor (still working on the testkit)
+
+---
+
+# Top level behavior
+
+```scala
+  val topLevel = Behaviors.setup[LockStatus] { initialCtx =>
+    val lockActor = initialCtx.spawn(unlocked, "lock-a")
+    lockActor ! Lock(initialCtx.self)
+
+    Behaviors.immutable {
+      case (ctx, Granted) =>
+        ctx.log.info("Yay I have the Lock")
+
+        ctx.ask(lockActor)(Unlock) {
+          case Success(m) => m
+          case Failure(t) => UnlockFailed
+        }
+
+        Behaviors.same
+      case (ctx, Taken(who)) =>
+        ctx.log.info("Who date take my lock???")
+        Behaviors.same
+      case (ctx, Released) =>
+        ctx.log.info("No more lock for me :(")
+        Behaviors.same
+    }
+  }
+```
+
+--
+
+```scala
+  val system = ActorSystem(topLevel, "TopLevel")
+```
+
 ---
 
 # Ask example
 
+```scala
+ctx.ask(lock)(Unlock) {
+  case Success(m) => m
+  case Failure(t) => UnlockFailed
+}
+```
+
+--
+
+```scala
+  def ask[Req, Res](
+    otherActor: ActorRef[Req])
+   (createRequest: ActorRef[Res] ⇒ Req)
+   (mapResponse: Try[Res] ⇒ T)
+```
+
+
 ---
 
-# Going distributed
+background-image: url(AkkaCluster.png)
 
---- 
+---
+
+background-image: url(AkkaTypedReceptionist.png)
+
+---
+
+# Service discovery
+
+```scala
+sealed trait NeedsLock
+case class LockActorAvailable(lock: ActorRef[LockProtocol]) extends NeedsLock
+case object LockNotAvailable extends NeedsLock
+case object LockGranted extends NeedsLock
+
+```
+
+--
+
+```scala
+val needsLockGrant = Behaviors.immutable[NeedsLock] {
+  case (ctx, LockGranted) =>
+    ctx.log.info("Yay lock, but what do I do with it?? Mutate some global state? Mu haha")
+    Behaviors.same
+  case (ctx, LockNotAvailable) =>
+    ctx.log.info("Sad panda")
+    Behaviors.stopped
+}
+```
+
+---
+
+# Registering with the receptionist
+
+```scala
+val topLevel = Behaviors.setup[NeedsLock] { initialCtx =>
+  val lock = initialCtx.spawn(unlocked, "lock-a")
+  initialCtx.system.receptionist ! Register(ServiceKey[LockProtocol]("lock-a"), lock)
+  needsLockInstance
+}
+
+```
+
+--
+
+```scala
+val lockKey = ServiceKey[LockProtocol]("lock-a")
+initialCtx.ask(initialCtx.system.receptionist)(Find(lockKey)) {
+  case Success(listing) if listing.serviceInstances(lockKey).size == 1 =>
+    LockActorAvailable(listing.serviceInstances(lockKey).head)
+  case _ =>
+    LockNotAvailable
+}
+
+```
+
+---
+
+# Using the Lock Actor
+
+
+``` scala
+Behaviors.immutable[NeedsLock] {
+    case (ctx, LockActorAvailable(lockActor)) =>
+      ctx.log.info("Lock actor is available, time to get it")
+      ctx.ask(lockActor)(Lock) {
+        case Success(l) => LockGranted
+        case Failure(t) => LockNotAvailable
+      }
+      needsLockGrant
+    case (ctx, LockNotAvailable) =>
+      ctx.log.info("Oh noes, no lock actor")
+      Behaviors.stopped
+  }
+}
+```
+
+---
+
+# Service discovery
+
+```scala
+sealed trait NeedsLock
+case class LockActorAvailable(lock: ActorRef[LockProtocol]) extends NeedsLock
+case object LockNotAvailable extends NeedsLock
+case object LockGranted extends NeedsLock
+
+```
+
+```scala
+val needsLockGrant = Behaviors.immutable[NeedsLock] {
+  case (ctx, LockGranted) =>
+    ctx.log.info("Yay lock, but what do I do with it?? Mutate some global state? Mu haha")
+    Behaviors.same
+  case (ctx, LockNotAvailable) =>
+    ctx.log.info("Sad panda")
+    Behaviors.stopped
+}
+```
+
+
+---
 
 # Persistence
 
-class: center, middle
+--
+
+```scala
+case class Command(data: String)
+
+case class Event(data: String)
+
+case class State(events: List[String] = Nil)
+```
+
+--
+
+```scala
+val behavior: Behavior[Command] =
+  PersistentBehaviors.immutable[Command, Event, State](
+    persistenceId = "abc",
+    initialState = State(),
+    commandHandler = (ctx, state, cmd) ⇒ ???,
+    eventHandler = (state, evt) ⇒ ???)
+```
+
+---
+
+# Command handler
+
+```scala
+val commandHandler: CommandHandler[Command, Event, State] =
+  CommandHandler.command {
+    case Cmd(data) ⇒ Effect.persist(Evt(data))
+  }
+```
+
+--
+
+* Persist
+* PersistAll
+* Stop
+* Unhandled
+
+---
+
+# Event Handler
+
+  ```scala
+val eventHandler: (State, Event) ⇒ (State) = {
+  case (state, Evt(data)) ⇒ state.copy(data :: state.events)
+}
+```
+
+---
+
+# That's all folks
+
+There's more
+  * Cluster Sharding
+  * Receptionist subscribe
+
+---
 
 # Thanks!
+
 Code and slides at `chbatey/akka-typed-talk` on GitHub
 
 ---
 
 # Questions?
-
 
  </textarea>
 <script src="remark-latest.min.js">
