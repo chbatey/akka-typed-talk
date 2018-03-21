@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 
-<title>Responsive, back pressured services using Akka</title>
+<title>Akka Typed</title>
 <meta charset="utf-8">
 <style>
 @import url(https://fonts.googleapis.com/css?family=Yanone+Kaffeesatz);
@@ -169,15 +169,15 @@ class BecomeActor extends Actor {
 
 # Akka Typed
 
-* Change its behavior
-
---
-
 * Send 0+ messages
 
 --
 
 * Spawn 0+ children
+
+--
+
+* Change its behavior
 
 ---
 
@@ -219,12 +219,43 @@ def locked(by: ActorRef[LockStatus]): Behavior[LockProtocol] = Behaviors.immutab
      Behaviors.same
    case (ctx, Unlock(who)) =>
      require(who == by)
-     Behaviors.same
+     unlocked
  }
 ```
 
 ???
 * Run behaviors without starting an actor (still working on the testkit)
+
+---
+
+# Top level behavior
+
+```scala
+  val topLevel = Behaviors.setup[LockStatus] { initialCtx =>
+    val lockActor = initialCtx.spawn(unlocked, "lock-a")
+    lockActor ! Lock(initialCtx.self)
+    ???
+```
+---
+
+# Top level behavior
+
+```scala
+  val topLevel = Behaviors.setup[LockStatus] { initialCtx =>
+    val lockActor = initialCtx.spawn(unlocked, "lock-a")
+    lockActor ! Lock(initialCtx.self)
+
+    Behaviors.immutable {
+      case (ctx, Granted) =>
+        ctx.log.info("Yay I have the Lock")
+
+        ctx.ask(lockActor)(Unlock) {
+          case Success(m) => m
+          case Failure(t) => UnlockFailed
+        }
+
+        Behaviors.same
+```
 
 ---
 
@@ -246,7 +277,7 @@ def locked(by: ActorRef[LockStatus]): Behavior[LockProtocol] = Behaviors.immutab
 
         Behaviors.same
       case (ctx, Taken(who)) =>
-        ctx.log.info("Who date take my lock???")
+        ctx.log.info("Who dare take my lock???")
         Behaviors.same
       case (ctx, Released) =>
         ctx.log.info("No more lock for me :(")
@@ -443,7 +474,7 @@ val eventHandler: (State, Event) ⇒ (State) = {
 
 # That's all folks
 
-There's more
+There's more:
   * Cluster Sharding
   * Receptionist subscribe
 
