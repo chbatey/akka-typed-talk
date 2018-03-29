@@ -55,10 +55,9 @@ Lightbend
 * Christopher Batey
 * Work @ Lightbend on the Akka team
     * Akka
-    * Akka-streams
-    * Akka-http
-    * Akka persistence for Apache Cassandra
-
+    * Akka Streams
+    * Akka HTTP
+    * Akka Persistence plugins
 
 ---
 
@@ -203,7 +202,7 @@ final case class Taken(who: ActorRef[LockStatus]) extends LockStatus
 # Behaviors
 
 ```scala
-val unlocked: Behavior[LockProtocol] = Behaviors.immutable[LockProtocol] {
+val unlocked: Behavior[LockProtocol] = Behaviors.receive[LockProtocol] {
   case (ctx, Lock(who)) =>
     who ! Granted
     locked(who)
@@ -213,7 +212,7 @@ val unlocked: Behavior[LockProtocol] = Behaviors.immutable[LockProtocol] {
 --
 
 ```scala
-def locked(by: ActorRef[LockStatus]): Behavior[LockProtocol] = Behaviors.immutable[LockProtocol] {
+def locked(by: ActorRef[LockStatus]): Behavior[LockProtocol] = Behaviors.receive[LockProtocol] {
    case (ctx, Lock(who)) =>
      who ! Taken(by)
      Behaviors.same
@@ -245,7 +244,7 @@ def locked(by: ActorRef[LockStatus]): Behavior[LockProtocol] = Behaviors.immutab
     val lockActor = initialCtx.spawn(unlocked, "lock-a")
     lockActor ! Lock(initialCtx.self)
 
-    Behaviors.immutable {
+    Behaviors.receive {
       case (ctx, Granted) =>
         ctx.log.info("Yay I have the Lock")
 
@@ -266,7 +265,7 @@ def locked(by: ActorRef[LockStatus]): Behavior[LockProtocol] = Behaviors.immutab
     val lockActor = initialCtx.spawn(unlocked, "lock-a")
     lockActor ! Lock(initialCtx.self)
 
-    Behaviors.immutable {
+    Behaviors.receive {
       case (ctx, Granted) =>
         ctx.log.info("Yay I have the Lock")
 
@@ -336,7 +335,7 @@ case object LockGranted extends NeedsLock
 --
 
 ```scala
-val needsLockGrant = Behaviors.immutable[NeedsLock] {
+val needsLockGrant = Behaviors.receive[NeedsLock] {
   case (ctx, LockGranted) =>
     ctx.log.info("Yay lock, but what do I do with it?? Mutate some global state? Mu haha")
     Behaviors.same
@@ -378,7 +377,7 @@ initialCtx.ask(initialCtx.system.receptionist)(Find(lockKey)) {
 
 
 ``` scala
-Behaviors.immutable[NeedsLock] {
+Behaviors.receive[NeedsLock] {
     case (ctx, LockActorAvailable(lockActor)) =>
       ctx.log.info("Lock actor is available, time to get it")
       ctx.ask(lockActor)(Lock) {
@@ -406,7 +405,7 @@ case object LockGranted extends NeedsLock
 ```
 
 ```scala
-val needsLockGrant = Behaviors.immutable[NeedsLock] {
+val needsLockGrant = Behaviors.receive[NeedsLock] {
   case (ctx, LockGranted) =>
     ctx.log.info("Yay lock, but what do I do with it?? Mutate some global state? Mu haha")
     Behaviors.same
@@ -435,7 +434,7 @@ case class State(events: List[String] = Nil)
 
 ```scala
 val behavior: Behavior[Command] =
-  PersistentBehaviors.immutable[Command, Event, State](
+  PersistentBehaviors.receive[Command, Event, State](
     persistenceId = "abc",
     initialState = State(),
     commandHandler = (ctx, state, cmd) ⇒ ???,
@@ -496,3 +495,4 @@ Code and slides at `chbatey/akka-typed-talk` on GitHub
 </script>
 </body>
 </html>
+
